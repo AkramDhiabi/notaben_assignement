@@ -1,16 +1,9 @@
-.PHONY: help init plan apply destroy outputs status argocd-ui deploy-app check-app app-ui clean clean-all
+.PHONY: help init plan apply destroy outputs status argocd-ui deploy-app check-app app-ui clean clean-all local-test local-clean local-status local-argocd-password configure-kubectl argocd-password
 
-# Variables
 AWS_REGION := eu-central-1
 CLUSTER_NAME := notaben-eks-cluster
 ARGOCD_NAMESPACE := argocd
 APP_NAMESPACE := nb-challenge
-
-# Colors for output
-BLUE := \033[0;34m
-GREEN := \033[0;32m
-YELLOW := \033[0;33m
-NC := \033[0m # No Color
 
 ##@ General
 
@@ -20,77 +13,82 @@ help: ## Display this help message
 ##@ Infrastructure
 
 init: ## Initialize Terraform
-	@echo "$(BLUE)Initializing Terraform...$(NC)"
 	cd terraform && terraform init
 
 plan: ## Show Terraform execution plan
-	@echo "$(BLUE)Planning infrastructure changes...$(NC)"
 	cd terraform && terraform plan
 
 apply: ## Deploy infrastructure (EKS + ArgoCD)
-	@echo "$(BLUE)Deploying infrastructure...$(NC)"
-	@echo "$(YELLOW)This will take ~15 minutes$(NC)"
+	@echo "This will take ~15 minutes"
 	cd terraform && terraform apply
 
 destroy: ## Destroy all infrastructure
-	@echo "$(YELLOW)WARNING: This will destroy all resources!$(NC)"
+	@echo "WARNING: This will destroy all resources!"
 	@echo "Press Ctrl+C to cancel or wait 5 seconds to continue..."
 	@sleep 5
 	cd terraform && terraform destroy
 
 outputs: ## Show Terraform outputs
-	@echo "$(BLUE)Terraform outputs:$(NC)"
 	cd terraform && terraform output
 
 ##@ Cluster Access
 
 configure-kubectl: ## Configure kubectl for EKS cluster
-	@echo "$(BLUE)Configuring kubectl...$(NC)"
 	aws eks update-kubeconfig --region $(AWS_REGION) --name $(CLUSTER_NAME)
-	@echo "$(GREEN)kubectl configured successfully$(NC)"
 
 status: configure-kubectl ## Show cluster status (nodes, pods, services)
-	@echo "$(BLUE)Nodes:$(NC)"
 	@kubectl get nodes
-	@echo "\n$(BLUE)Pods (all namespaces):$(NC)"
 	@kubectl get pods -A
-	@echo "\n$(BLUE)Services (all namespaces):$(NC)"
 	@kubectl get svc -A
 
 ##@ ArgoCD
 
+argocd-password: configure-kubectl ## Get ArgoCD admin password
+	@kubectl get secret argocd-initial-admin-secret -n $(ARGOCD_NAMESPACE) -o jsonpath='{.data.password}' | base64 -d
+	@echo ""
+
 argocd-ui: configure-kubectl ## Access ArgoCD UI at https://localhost:8080
-	@echo "$(GREEN)ArgoCD UI: https://localhost:8080$(NC)"
-	@echo "$(YELLOW)Username: admin$(NC)"
-	@echo "$(YELLOW)Password: Get from AWS Secrets Manager$(NC)"
+	@echo "ArgoCD UI: https://localhost:8080"
+	@echo "Username: admin"
+	@echo "Password: Run 'make argocd-password'"
 	kubectl port-forward svc/argocd-server -n $(ARGOCD_NAMESPACE) 8080:443
 
 ##@ Application
 
 deploy-app: configure-kubectl ## Deploy application via ArgoCD
-	@echo "$(BLUE)Deploying application...$(NC)"
-	@echo "$(YELLOW)Ensure Git repo URL is updated in argocd/application.yaml$(NC)"
+	@echo "Ensure Git repo URL is updated in argocd/application.yaml"
 	kubectl apply -f argocd/application.yaml
-	@echo "$(GREEN)Application deployed. Check status: make check-app$(NC)"
+	@echo "Check status: make check-app"
 
 check-app: configure-kubectl ## Check application status
-	@echo "$(BLUE)ArgoCD Application:$(NC)"
 	@kubectl get application simple-app -n $(ARGOCD_NAMESPACE)
-	@echo "\n$(BLUE)Application Pods:$(NC)"
 	@kubectl get pods -n $(APP_NAMESPACE) -l app=simple-app
-	@echo "\n$(BLUE)Application Service:$(NC)"
 	@kubectl get svc -n $(APP_NAMESPACE) simple-app
 
 app-ui: configure-kubectl ## Access application at http://localhost:8081
-	@echo "$(GREEN)Application: http://localhost:8081$(NC)"
+	@echo "Application: http://localhost:8081"
 	kubectl port-forward svc/simple-app -n $(APP_NAMESPACE) 8081:80
 
 ##@ Cleanup
 
 clean: configure-kubectl ## Remove application only
-	@echo "$(YELLOW)Removing application...$(NC)"
 	kubectl delete -f argocd/application.yaml --ignore-not-found=true
-	@echo "$(GREEN)Application removed$(NC)"
 
 clean-all: clean destroy ## Remove everything (application + infrastructure)
-	@echo "$(GREEN)All resources removed$(NC)"
+
+##@ Local Testing (Kind)
+
+local-test: ## Setup local Kind cluster with ArgoCD and deploy app
+	@./local-test/setup.sh
+
+local-clean: ## Delete local Kind cluster
+	@./local-test/cleanup.sh
+
+local-status: ## Check local Kind cluster status
+	@kubectl --context kind-notaben-local get nodes
+	@kubectl --context kind-notaben-local get pods -A
+	@kubectl --context kind-notaben-local get svc -A
+
+local-argocd-password: ## Get local ArgoCD admin password
+	@kubectl --context kind-notaben-local get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d
+	@echo ""
