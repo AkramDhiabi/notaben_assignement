@@ -86,9 +86,3 @@ variable "argocd_chart_version" {
   type        = string
   default     = "6.7.3"
 }
-
-variable "argocd_secret_recovery_days" {
-  description = "Number of days to retain deleted ArgoCD secret (0 = immediate deletion, 7-30 = recovery window)"
-  type        = number
-  default     = 0 # Set to zero to force delete during Terraform destroy
-}

@@ -89,12 +89,7 @@ output "argocd_server_url" {
   value       = var.install_argocd ? "kubectl port-forward svc/argocd-server -n argocd 8080:443" : "ArgoCD not installed"
 }
 
-output "argocd_secret_name" {
-  description = "AWS Secrets Manager secret name for ArgoCD admin password"
-  value       = var.install_argocd ? aws_secretsmanager_secret.argocd_admin[0].name : "ArgoCD not installed"
-}
-
 output "argocd_password_command" {
-  description = "Command to retrieve ArgoCD admin password from AWS Secrets Manager"
-  value       = var.install_argocd ? "aws secretsmanager get-secret-value --secret-id ${aws_secretsmanager_secret.argocd_admin[0].name} --query SecretString --output text | jq -r .password" : "ArgoCD not installed"
+  description = "Command to retrieve ArgoCD admin password from Kubernetes secret"
+  value       = var.install_argocd ? "kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d" : "ArgoCD not installed"
 }

@@ -148,41 +148,6 @@ resource "kubernetes_namespace" "argocd" {
   depends_on = [module.eks]
 }
 
-# Generate random password for ArgoCD admin
-resource "random_password" "argocd_admin" {
-  count = var.install_argocd ? 1 : 0
-
-  length           = 16
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
-
-# Store ArgoCD admin password in AWS Secrets Manager
-resource "aws_secretsmanager_secret" "argocd_admin" {
-  count = var.install_argocd ? 1 : 0
-
-  name_prefix             = "${local.cluster_name}-argocd-admin-"
-  description             = "ArgoCD admin password for ${local.cluster_name}"
-  recovery_window_in_days = var.argocd_secret_recovery_days
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${local.cluster_name}-argocd-admin-password"
-    }
-  )
-}
-
-resource "aws_secretsmanager_secret_version" "argocd_admin" {
-  count = var.install_argocd ? 1 : 0
-
-  secret_id = aws_secretsmanager_secret.argocd_admin[0].id
-  secret_string = jsonencode({
-    username = "admin"
-    password = random_password.argocd_admin[0].result
-  })
-}
-
 resource "helm_release" "argocd" {
   count = var.install_argocd ? 1 : 0
 
@@ -210,16 +175,9 @@ resource "helm_release" "argocd" {
     })
   ]
 
-  # Set the admin password securely using set_sensitive
-  set_sensitive {
-    name  = "configs.secret.argocdServerAdminPassword"
-    value = bcrypt(random_password.argocd_admin[0].result)
-  }
-
   depends_on = [
     module.eks,
-    kubernetes_namespace.argocd,
-    aws_secretsmanager_secret_version.argocd_admin
+    kubernetes_namespace.argocd
   ]
 }
 
