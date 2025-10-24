@@ -13,7 +13,7 @@ This project provisions:
 
 ## Prerequisites
 
-Ensure you have the following installed and configured:
+Required tools:
 
 1. **Terraform** >= 1.3
 2. **AWS CLI** configured with credentials for `eu-central-1` region
@@ -26,12 +26,11 @@ Ensure you have the following installed and configured:
 # Verify AWS credentials
 aws sts get-caller-identity
 
-# Ensure your IAM user/role has permissions for:
+# Required IAM permissions:
 # - VPC, subnets
 # - EKS clusters and node groups
 # - IAM roles and policies
 # - EC2 instances
-# - Secrets Manager
 ```
 
 
@@ -47,10 +46,13 @@ make apply
 # 2. Check cluster status
 make status
 
-# 3. Update argocd/application.yaml with your Git repo URL, then:
+# 3. Get ArgoCD password
+make argocd-password
+
+# 4. Deploy application via GitOps
 make deploy-app
 
-# 4. Check deployment
+# 5. Check deployment
 make check-app
 ```
 
@@ -80,25 +82,19 @@ kubectl get pods -A
 
 #### 2. Get ArgoCD Password
 
-ArgoCD password is stored in AWS Secrets Manager. Access it via AWS Console or CLI:
+ArgoCD stores its initial admin password in a Kubernetes secret. Retrieve it using:
 
 ```bash
-# Get secret name from Terraform outputs
-cd terraform
-terraform output -raw argocd_secret_name
+# Get password using Makefile
+make argocd-password
 
-# Retrieve password from AWS Secrets Manager
-aws secretsmanager get-secret-value \
-  --secret-id <secret-name-from-above> \
-  --query SecretString --output text | jq -r .password
+# Or directly with kubectl
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d
 ```
 
 #### 3. Deploy Application via GitOps
 
 ```bash
-# Update Git repository URL in argocd/application.yaml
-sed -i 's|YOUR-USERNAME/YOUR-REPO|your-github-username/your-repo-name|g' argocd/application.yaml
-
 # Apply ArgoCD Application
 kubectl apply -n argocd -f argocd/application.yaml
 
@@ -109,25 +105,72 @@ kubectl get applications -n argocd
 kubectl get pods,svc -n nb-challenge
 ```
 
+**Note:** The Git repository URL is already configured in `argocd/application.yaml` to point to `https://github.com/AkramDhiabi/notaben_assignement.git`.
+
 #### 4. Verify Deployment
 
 ```bash
 # Port-forward to test application
 kubectl port-forward svc/simple-app -n nb-challenge 8081:80
 
-# Test
+# In another terminal, test the application
 curl http://localhost:8081
+```
+
+## Local Testing with Kind
+
+Test the complete GitOps workflow locally using Kind (Kubernetes in Docker). Only Docker is required.
+
+### Setup
+
+```bash
+# Start local cluster with ArgoCD and app
+make local-test
+```
+
+This script will:
+1. Download Kind/kubectl if needed
+2. Create Kind cluster
+3. Install ArgoCD
+4. Deploy app via ArgoCD from GitHub
+
+### Access Services
+
+```bash
+# Get ArgoCD password
+make local-argocd-password
+
+# Port-forward ArgoCD UI
+kubectl port-forward -n argocd svc/argocd-server 8080:443
+# Visit: https://localhost:8080 (admin / password from above)
+
+# Port-forward app
+kubectl port-forward -n nb-challenge svc/simple-app 8081:80
+# Visit: http://localhost:8081
+```
+
+### Check Status
+
+```bash
+# Check cluster status
+make local-status
+
+# Check ArgoCD application
+kubectl get application simple-app -n argocd
+```
+
+### Cleanup
+
+```bash
+# Delete local cluster
+make local-clean
 ```
 
 ## Cleanup
 
 ```bash
-# Remove everything
+# Remove everything (application + infrastructure)
 make clean-all
-
-# Or manually
-kubectl delete -f argocd/application.yaml
-cd terraform && terraform destroy
 ```
 
 ## Assumptions & Trade-offs
@@ -137,16 +180,15 @@ cd terraform && terraform destroy
 - Single NAT Gateway (use multiple for production)
 
 **Security:**
-- ArgoCD password stored in AWS Secrets Manager (KMS encrypted)
-- Password passed via `set_sensitive` (never in values files or Helm history)
-- 0-day secret recovery window for demo (set 7-30 days for production via `argocd_secret_recovery_days` variable)
+- ArgoCD uses default initial admin password stored in Kubernetes secret
+- For production: generate random password, store in AWS Secrets Manager (KMS encrypted), and inject via Helm `set_sensitive` to avoid exposure in values files or Helm history
 - Public EKS API access (restrict via security groups for production)
 
 **Simplifications:**
 - No ingress controller or TLS certificates
 - No monitoring/logging setup
 - No network policies or pod security standards
-- Manual Git repository URL configuration required
+- Port-forward access only (no LoadBalancer services)
 
 **Production Improvements Needed:**
 - Ingress controller (nginx-ingress or AWS ALB)
@@ -171,25 +213,39 @@ notaben_assignment/
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   └── templates/
-└── argocd/
-    └── application.yaml     # ArgoCD Application manifest
+├── argocd/
+│   └── application.yaml     # ArgoCD Application manifest
+└── local-test/              # Local testing with Kind
+    ├── setup.sh
+    └── cleanup.sh
 ```
 
 ## Useful Commands
 
 ```bash
-# Makefile commands
+# Makefile commands (recommended)
 make help              # Show all available commands
+
+# AWS EKS
 make init              # Initialize Terraform
 make apply             # Deploy infrastructure
+make configure-kubectl # Configure kubectl for EKS cluster
 make status            # Show cluster status
+make argocd-password   # Get ArgoCD admin password
 make argocd-ui         # Access ArgoCD UI (https://localhost:8080)
 make deploy-app        # Deploy application via ArgoCD
 make check-app         # Check application status
 make app-ui            # Access application (http://localhost:8081)
-make clean-all         # Remove everything
+make clean             # Remove application only
+make clean-all         # Remove everything (app + infrastructure)
 
-# Direct kubectl commands
+# Local testing with Kind
+make local-test              # Setup local cluster
+make local-status            # Check local cluster
+make local-argocd-password   # Get local ArgoCD password
+make local-clean             # Delete local cluster
+
+# Direct kubectl commands (if needed)
 kubectl get nodes
 kubectl get pods -n nb-challenge
 kubectl get applications -n argocd
