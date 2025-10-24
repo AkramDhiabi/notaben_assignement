@@ -1,4 +1,4 @@
-.PHONY: help init plan apply destroy outputs status argocd-password argocd-ui deploy-app check-app app-ui clean clean-all
+.PHONY: help init plan apply destroy outputs status argocd-ui deploy-app check-app app-ui clean clean-all
 
 # Variables
 AWS_REGION := eu-central-1
@@ -59,15 +59,10 @@ status: configure-kubectl ## Show cluster status (nodes, pods, services)
 
 ##@ ArgoCD
 
-argocd-password: ## Get ArgoCD admin password from AWS Secrets Manager
-	@echo "$(BLUE)ArgoCD admin password:$(NC)"
-	@cd terraform && terraform output -raw argocd_password_command | sh
-	@echo ""
-
 argocd-ui: configure-kubectl ## Access ArgoCD UI at https://localhost:8080
 	@echo "$(GREEN)ArgoCD UI: https://localhost:8080$(NC)"
 	@echo "$(YELLOW)Username: admin$(NC)"
-	@echo "$(YELLOW)Password: make argocd-password$(NC)"
+	@echo "$(YELLOW)Password: Get from AWS Secrets Manager$(NC)"
 	kubectl port-forward svc/argocd-server -n $(ARGOCD_NAMESPACE) 8080:443
 
 ##@ Application
