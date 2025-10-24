@@ -203,7 +203,7 @@ make clean-all
 ```
 notaben_assignment/
 ├── Makefile                 # All commands organized for easy use
-├── README.md                # This file
+├── README.md                # Main readme file
 ├── terraform/               # EKS infrastructure
 │   ├── main.tf              # VPC, EKS, ArgoCD
 │   ├── variables.tf         # Input variables
